@@ -96,7 +96,8 @@ function App() {
     [toast, setToast] = useState(""),
     [busy, setBusy] = useState(false),
     [authMode, setAuthMode] = useState("signin"),
-    [signupMembers, setSignupMembers] = useState([]);
+    [signupMembers, setSignupMembers] = useState([]),
+    [profileMenu, setProfileMenu] = useState(false);
   const refresh = async () => {
     const d = await api("/workspace");
     setData(d);
@@ -119,6 +120,19 @@ function App() {
       return () => clearTimeout(t);
     }
   }, [toast]);
+  useEffect(() => {
+    if (!profileMenu) return;
+    const closeMenu = (event) => {
+      if (event.key === "Escape" || !event.target.closest?.(".account-menu"))
+        setProfileMenu(false);
+    };
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("keydown", closeMenu);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("keydown", closeMenu);
+    };
+  }, [profileMenu]);
   const run = async (fn, msg) => {
     setBusy(true);
     setError("");
@@ -526,14 +540,64 @@ function App() {
             <span>{project?.name || "Projects"}</span>
           </div>
           <div className="header-right">
-            <span className="live-dot" />{" "}
-            {busy
-              ? "Saving changes…"
-              : error
-                ? "Action needs attention"
-                : "All changes saved"}{" "}
+            <span className="save-status">
+              <span className="live-dot" />{" "}
+              {busy
+                ? "Saving changes…"
+                : error
+                  ? "Action needs attention"
+                  : "All changes saved"}
+            </span>
             <span className="header-divider" />
-            <Avatar user={me} small />
+            <div className="account-menu">
+              <button
+                className="account-trigger"
+                aria-haspopup="menu"
+                aria-expanded={profileMenu}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setProfileMenu((open) => !open);
+                }}
+              >
+                <Avatar user={me} small />
+                <span className="account-copy">
+                  <strong>{me.name}</strong>
+                  <small>{me.position || me.role}</small>
+                </span>
+                <ChevronDown size={14} className={profileMenu ? "menu-open" : ""} />
+              </button>
+              {profileMenu && (
+                <div className="account-dropdown" role="menu">
+                  <div className="account-summary">
+                    <Avatar user={me} />
+                    <div>
+                      <strong>{me.name}</strong>
+                      <small>{me.email}</small>
+                    </div>
+                  </div>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileMenu(false);
+                      setView("Team");
+                      setModal({ kind: "profile", item: { ...me } });
+                    }}
+                  >
+                    <Settings size={16} /> Profile details
+                  </button>
+                  <button
+                    role="menuitem"
+                    className="signout-menu-item"
+                    onClick={() => {
+                      setProfileMenu(false);
+                      setView("Sign out");
+                    }}
+                  >
+                    <LogOut size={16} /> Sign out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
         <section className="page">

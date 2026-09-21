@@ -1,6 +1,6 @@
 # Orbit
 
-A working Jira-style project workspace built with Python/FastAPI, React, and PostgreSQL. Includes self-service company signup, isolated workspaces, initial team onboarding, editable profiles, project and sprint creation, Kanban drag and drop, searchable issue tables, story points, assignees, priorities, comments, team workload reports, workspace activity, and administrator/member/viewer roles.
+A working Jira-style project workspace built with Python/FastAPI, React, and PostgreSQL. Includes self-service company signup, isolated workspaces, initial team onboarding, editable profiles with position, primary project and current focus, a sign-out confirmation page, project and sprint creation, Kanban drag and drop, searchable issue tables, story points, assignees, priorities, comments, team workload reports, workspace activity, and administrator/member/viewer roles.
 
 ## Deploy with GitHub, Vercel, and Supabase
 
@@ -91,7 +91,7 @@ cd ../frontend
 npm run build
 ```
 
-Integration tests cover signup, workspace isolation, profile editing, sprint creation, issue assignment, unauthenticated access, login/logout, issue persistence, stale-edit conflicts, comments, viewer permissions, request protection, and validation.
+Integration tests cover signup, workspace isolation, full profile editing, sprint creation, issue assignment, unauthenticated access, login/logout, issue persistence, stale-edit conflicts, comments, viewer permissions, request protection, and validation.
 
 ## Access model
 

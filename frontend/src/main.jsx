@@ -249,6 +249,16 @@ function App() {
                 Company name
                 <input name="company_name" maxLength={120} placeholder="Acme Studio" required />
               </label>
+              <div className="auth-grid profile-onboarding">
+                <label>
+                  Your position
+                  <input name="position" maxLength={120} placeholder="Product manager" />
+                </label>
+                <label>
+                  Working on
+                  <input name="working_on" maxLength={500} placeholder="Q4 launch" />
+                </label>
+              </div>
               <div className="auth-grid">
                 <label>
                   First project
@@ -498,18 +508,11 @@ function App() {
             <Avatar user={me} />
             <div>
               {me.name}
-              <small>{me.role === "admin" ? "Workspace admin" : me.role}</small>
+              <small>{me.position || (me.role === "admin" ? "Workspace admin" : me.role)}</small>
             </div>
             <button
-              title="Sign out"
-              onClick={async () => {
-                try {
-                  await api("/logout", "POST");
-                  setMe(null);
-                } catch (e) {
-                  setError(e.message);
-                }
-              }}
+              title="Open sign out page"
+              onClick={() => setView("Sign out")}
             >
               <LogOut size={16} />
             </button>
@@ -548,6 +551,8 @@ function App() {
                     ? "Workspace overview"
                     : view === "Team"
                       ? "Team & access"
+                      : view === "Sign out"
+                        ? "Sign out"
                       : view}
               </h1>
               <p>
@@ -557,12 +562,14 @@ function App() {
                     ? "A clear view of your team’s progress and priorities."
                     : view === "Team"
                       ? "Good work starts with great people."
+                      : view === "Sign out"
+                        ? "Finish your session securely."
                       : view === "Activity"
                         ? "Every update, in one shared timeline."
                         : "Bring focus to what matters. Keep your team moving forward."}
               </p>
             </div>
-            <div className="title-actions">
+            {view !== "Sign out" && <div className="title-actions">
               <div className="avatar-stack">
                 {data.users.slice(0, 4).map((u) => (
                   <Avatar key={u.id} user={u} small />
@@ -573,9 +580,9 @@ function App() {
                   <Plus size={16} /> Create issue
                 </button>
               )}
-            </div>
+            </div>}
           </div>
-          <div className="tabs">
+          {view !== "Sign out" && <div className="tabs">
             {[
               ["Board", Columns3],
               ["List", List],
@@ -595,13 +602,47 @@ function App() {
             <span className="project-status">
               <span className="live-dot" /> Project active
             </span>
-          </div>
+          </div>}
           {error && (
             <div className="error dismiss">
               {error}
               <button onClick={() => setError("")}>
                 <X size={16} />
               </button>
+            </div>
+          )}
+          {view === "Sign out" && (
+            <div className="panel signout-page">
+              <span className="signout-icon"><LogOut size={28} /></span>
+              <span className="eyebrow">END THIS SESSION</span>
+              <h2>Ready to sign out?</h2>
+              <p>You’ll need your email and password to open this workspace again.</p>
+              <div className="signout-actions">
+                <button className="secondary" onClick={() => setView("Overview")} disabled={busy}>
+                  Stay signed in
+                </button>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await api("/logout", "POST");
+                      setMe(null);
+                      setAuthMode("signin");
+                      setView("Overview");
+                      setData({ workspace: null, projects: [], issues: [], users: [], activity: [], sprints: [] });
+                    } catch (e) {
+                      setError(e.message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  <LogOut size={16} /> {busy ? "Signing out…" : "Sign out"}
+                </button>
+              </div>
             </div>
           )}
           {["Board", "List", "Backlog", "My issues"].includes(view) && (
@@ -969,12 +1010,14 @@ function App() {
                   <span className="eyebrow">YOUR PROFILE</span>
                   <h3>{me.name}</h3>
                   <p>{me.email} · {me.role}</p>
+                  <p>{me.position || "Position not set"} · {me.project_name || "No primary project"}</p>
+                  <p className="working-on"><strong>Working on:</strong> {me.working_on || "Not specified yet"}</p>
                 </div>
                 <button
                   className="secondary"
-                  onClick={() => setModal({ kind: "profile", item: { name: me.name } })}
+                  onClick={() => setModal({ kind: "profile", item: { ...me } })}
                 >
-                  <Settings size={15} /> Edit profile name
+                  <Settings size={15} /> Edit profile
                 </button>
               </div>
               <div className="section-heading">
@@ -999,6 +1042,8 @@ function App() {
                   <div>
                     <strong>{u.name}</strong>
                     <small>{u.email}</small>
+                    <small>{u.position || "Position not set"} · {u.project_name || "No primary project"}</small>
+                    {u.working_on && <small>Working on: {u.working_on}</small>}
                   </div>
                   <span className="pill">{u.role}</span>
                 </div>
@@ -1022,6 +1067,7 @@ function App() {
             setError("");
           }}
           users={data.users}
+          projects={data.projects}
           editable={editable}
           busy={busy}
           error={error}
@@ -1030,7 +1076,12 @@ function App() {
               setBusy(true);
               setError("");
               try {
-                const updated = await api("/profile", "PUT", { name: b.name });
+                const updated = await api("/profile", "PUT", {
+                  name: b.name,
+                  position: b.position || "",
+                  primary_project_id: b.primary_project_id || null,
+                  working_on: b.working_on || "",
+                });
                 setMe(updated);
                 await refresh();
                 setToast("Profile updated");
@@ -1123,7 +1174,7 @@ function IssueTable({ issues, users, open }) {
     </div>
   );
 }
-function Modal({ modal, close, users, editable, busy, error, save, sprints=[] }) {
+function Modal({ modal, close, users, projects, editable, busy, error, save, sprints=[] }) {
   const [b, setB] = useState(
       modal.item || {
         name: "",
@@ -1132,6 +1183,9 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
         email: "",
         password: "",
         role: "member",
+        position: "",
+        primary_project_id: null,
+        working_on: "",
       },
     ),
     [comments, setComments] = useState([]),
@@ -1177,7 +1231,7 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
             : modal.kind === "project"
               ? "Create a project"
               : modal.kind === "profile"
-                ? "Edit profile name"
+                ? "Edit profile"
                 : "Add team member"}
         </h2>
         <form
@@ -1186,7 +1240,7 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
             save(modal.kind, b);
           }}
         >
-          <fieldset disabled={!editable || busy}>
+          <fieldset disabled={(!editable && modal.kind !== "profile") || busy}>
             {modal.kind === "issue" ? (
               <>
                 <label>
@@ -1292,16 +1346,49 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
                 </div>
               </>
             ) : modal.kind === "profile" ? (
-              <label>
-                Profile name
-                <input
-                  autoFocus
-                  required
-                  maxLength={100}
-                  value={b.name}
-                  onChange={(e) => field("name", e.target.value)}
-                />
-              </label>
+              <>
+                <label>
+                  Profile name
+                  <input
+                    autoFocus
+                    required
+                    maxLength={100}
+                    value={b.name}
+                    onChange={(e) => field("name", e.target.value)}
+                  />
+                </label>
+                <div className="form-grid">
+                  <label>
+                    Position
+                    <input
+                      maxLength={120}
+                      value={b.position || ""}
+                      onChange={(e) => field("position", e.target.value)}
+                      placeholder="Product designer"
+                    />
+                  </label>
+                  <label>
+                    Primary project
+                    <select
+                      value={b.primary_project_id || ""}
+                      onChange={(e) => field("primary_project_id", e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">No primary project</option>
+                      {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Working on
+                  <textarea
+                    rows={3}
+                    maxLength={500}
+                    value={b.working_on || ""}
+                    onChange={(e) => field("working_on", e.target.value)}
+                    placeholder="What are you focused on right now?"
+                  />
+                </label>
+              </>
             ) : (
               <>
                 <label>
@@ -1373,6 +1460,37 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
                         </option>
                       </select>
                     </label>
+                    <div className="form-grid">
+                      <label>
+                        Position
+                        <input
+                          maxLength={120}
+                          value={b.position || ""}
+                          onChange={(e) => field("position", e.target.value)}
+                          placeholder="Engineer"
+                        />
+                      </label>
+                      <label>
+                        Primary project
+                        <select
+                          value={b.primary_project_id || ""}
+                          onChange={(e) => field("primary_project_id", e.target.value ? Number(e.target.value) : null)}
+                        >
+                          <option value="">No primary project</option>
+                          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <label>
+                      Working on
+                      <textarea
+                        rows={3}
+                        maxLength={500}
+                        value={b.working_on || ""}
+                        onChange={(e) => field("working_on", e.target.value)}
+                        placeholder="Current focus or responsibility"
+                      />
+                    </label>
                   </>
                 )}
               </>
@@ -1383,7 +1501,7 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
             <button type="button" className="secondary" onClick={close}>
               Cancel
             </button>
-            {editable && (
+            {(editable || modal.kind === "profile") && (
               <button className="primary" disabled={busy}>
                 {busy
                   ? "Saving…"

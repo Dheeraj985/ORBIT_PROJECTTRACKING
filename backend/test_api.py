@@ -79,9 +79,14 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual([p['name'] for p in workspace['projects']],['Website Launch'])
         self.assertEqual({u['email'] for u in workspace['users']},{'owner@acme.test','jordan@acme.test'})
         member_id=next(u['id'] for u in workspace['users'] if u['email']=='jordan@acme.test')
-        updated=self.client.put('/api/profile',headers=self.headers,json={'name':'Renamed Owner'})
+        updated=self.client.put('/api/profile',headers=self.headers,json={
+            'name':'Renamed Owner','position':'Founder','primary_project_id':project_id,'working_on':'Launch readiness',
+        })
         self.assertEqual(updated.status_code,200)
         self.assertEqual(updated.json()['name'],'Renamed Owner')
+        self.assertEqual(updated.json()['position'],'Founder')
+        self.assertEqual(updated.json()['project_name'],'Website Launch')
+        self.assertEqual(updated.json()['working_on'],'Launch readiness')
         sprint={'project_id':project_id,'name':'Launch Sprint','goal':'Ship the first release','start_date':'2026-09-21','end_date':'2026-10-04'}
         self.assertEqual(self.client.post('/api/sprints',headers=self.headers,json=sprint).status_code,201)
         issue={'project_id':project_id,'title':'Prepare launch','sprint':'Launch Sprint','assignee_id':member_id}
@@ -89,6 +94,9 @@ class WorkspaceTests(unittest.TestCase):
         workspace=self.client.get('/api/workspace').json()
         self.assertEqual(workspace['sprints'][0]['name'],'Launch Sprint')
         self.assertEqual(workspace['issues'][0]['assignee_id'],member_id)
+        owner=next(u for u in workspace['users'] if u['email']=='owner@acme.test')
+        self.assertEqual(owner['project_name'],'Website Launch')
+        self.assertEqual(owner['working_on'],'Launch readiness')
 
         self.client.cookies.clear()
         self.assertEqual(self.client.post('/api/login',json={'email':'admin@orbit.local','password':'test-password-1234'}).status_code,200)

@@ -6,27 +6,30 @@ CREATE TABLE IF NOT EXISTS workspaces (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS users (
-  id SERIAL PRIMARY KEY,
-  workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
-  name TEXT NOT NULL,
-  email TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL,
-  role TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  token TEXT PRIMARY KEY,
-  user_id INTEGER REFERENCES users(id),
-  expires DOUBLE PRECISION
-);
-
 CREATE TABLE IF NOT EXISTS projects (
   id SERIAL PRIMARY KEY,
   workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
   name TEXT NOT NULL,
   key TEXT NOT NULL,
   description TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  role TEXT NOT NULL,
+  position TEXT NOT NULL DEFAULT '',
+  primary_project_id INTEGER REFERENCES projects(id),
+  working_on TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  expires DOUBLE PRECISION
 );
 
 CREATE TABLE IF NOT EXISTS sprints (

@@ -810,6 +810,15 @@ tbody tr:hover {
   display: block;
   margin-top: 4px;
 }
+.member-row > div {
+  min-width: 0;
+}
+.member-row > div small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 520px;
+}
 .member-row .pill {
   margin-left: auto;
 }
@@ -830,6 +839,41 @@ tbody tr:hover {
 .profile-settings p {
   color: #718987;
   font-size: 12px;
+}
+.profile-settings .working-on {
+  margin-top: 7px;
+  color: #52706d;
+}
+.signout-page {
+  max-width: 560px;
+  margin: 48px auto 0 !important;
+  padding: 42px;
+  text-align: center;
+}
+.signout-icon {
+  width: 64px;
+  height: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  border-radius: 50%;
+  color: #a54e3d;
+  background: #fff0eb;
+}
+.signout-page h2 {
+  margin: 10px 0;
+  font-size: 28px;
+}
+.signout-page > p {
+  color: #718987;
+  line-height: 1.7;
+}
+.signout-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 28px;
 }
 .project-grid {
   display: grid;
@@ -1100,6 +1144,9 @@ fieldset {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px;
   gap: 12px;
+}
+.auth-grid.profile-onboarding {
+  grid-template-columns: 1fr 1fr;
 }
 .signup-team {
   margin: 8px 0 14px;

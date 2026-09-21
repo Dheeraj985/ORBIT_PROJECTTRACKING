@@ -44,9 +44,9 @@ def password_hash(password, salt=None):
 SCHEMA = [
     "CREATE EXTENSION IF NOT EXISTS citext",
     "CREATE TABLE IF NOT EXISTS workspaces(id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS users(id SERIAL PRIMARY KEY, workspace_id INTEGER REFERENCES workspaces(id), name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER REFERENCES users(id), expires DOUBLE PRECISION)",
     "CREATE TABLE IF NOT EXISTS projects(id SERIAL PRIMARY KEY, workspace_id INTEGER REFERENCES workspaces(id), name TEXT NOT NULL, key TEXT NOT NULL, description TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS users(id SERIAL PRIMARY KEY, workspace_id INTEGER REFERENCES workspaces(id), name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, position TEXT NOT NULL DEFAULT '', primary_project_id INTEGER REFERENCES projects(id), working_on TEXT NOT NULL DEFAULT '')",
+    "CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER REFERENCES users(id), expires DOUBLE PRECISION)",
     "CREATE TABLE IF NOT EXISTS sprints(id SERIAL PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), name CITEXT NOT NULL, goal TEXT NOT NULL DEFAULT '', start_date TEXT NOT NULL DEFAULT '', end_date TEXT NOT NULL DEFAULT '', UNIQUE(project_id,name))",
     "CREATE TABLE IF NOT EXISTS issues(id SERIAL PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, priority TEXT NOT NULL, type TEXT NOT NULL, assignee_id INTEGER REFERENCES users(id), points INTEGER NOT NULL DEFAULT 0, sprint TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1)",
     "CREATE TABLE IF NOT EXISTS comments(id SERIAL PRIMARY KEY, issue_id INTEGER REFERENCES issues(id), user_id INTEGER REFERENCES users(id), body TEXT NOT NULL, created_at TEXT NOT NULL)",
@@ -67,6 +67,13 @@ def initialize():
             columns = {r['column_name'] for r in c.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s", (table,))}
             if 'workspace_id' not in columns:
                 c.execute(f"ALTER TABLE {table} ADD COLUMN workspace_id INTEGER REFERENCES workspaces(id)")
+        user_columns = {r['column_name'] for r in c.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='users'")}
+        if 'position' not in user_columns:
+            c.execute("ALTER TABLE users ADD COLUMN position TEXT NOT NULL DEFAULT ''")
+        if 'primary_project_id' not in user_columns:
+            c.execute('ALTER TABLE users ADD COLUMN primary_project_id INTEGER REFERENCES projects(id)')
+        if 'working_on' not in user_columns:
+            c.execute("ALTER TABLE users ADD COLUMN working_on TEXT NOT NULL DEFAULT ''")
 
         workspace = c.execute('SELECT id FROM workspaces ORDER BY id LIMIT 1').fetchone()
         if not workspace:
@@ -75,6 +82,7 @@ def initialize():
         c.execute('UPDATE users SET workspace_id=%s WHERE workspace_id IS NULL',(default_workspace_id,))
         c.execute('UPDATE projects SET workspace_id=%s WHERE workspace_id IS NULL',(default_workspace_id,))
         c.execute('UPDATE activity a SET workspace_id=COALESCE((SELECT p.workspace_id FROM issues i JOIN projects p ON p.id=i.project_id WHERE i.id=a.issue_id),%s) WHERE a.workspace_id IS NULL',(default_workspace_id,))
+        c.execute('UPDATE users u SET primary_project_id=(SELECT MIN(p.id) FROM projects p WHERE p.workspace_id=u.workspace_id) WHERE u.primary_project_id IS NULL')
         c.execute('ALTER TABLE users ALTER COLUMN workspace_id SET NOT NULL')
         c.execute('ALTER TABLE projects ALTER COLUMN workspace_id SET NOT NULL')
         c.execute('ALTER TABLE activity ALTER COLUMN workspace_id SET NOT NULL')
@@ -92,6 +100,7 @@ def initialize():
                 for name,email in [('Jamie Chen','jamie@orbit.local'),('Sam Rivera','sam@orbit.local'),('Taylor Kim','taylor@orbit.local')]:
                     member_ids.append(c.execute('INSERT INTO users(workspace_id,name,email,password,role) VALUES(%s,%s,%s,%s,%s) RETURNING id',(default_workspace_id,name,email,password_hash(secrets.token_urlsafe(32)),'member')).fetchone()['id'])
                 project_id=c.execute('INSERT INTO projects(workspace_id,name,key,description) VALUES(%s,%s,%s,%s) RETURNING id',(default_workspace_id,'Platform redesign','ORB','A faster, more thoughtful experience for every customer.')).fetchone()['id']
+                c.execute('UPDATE users SET primary_project_id=%s WHERE workspace_id=%s',(project_id,default_workspace_id))
                 assignees=[member_ids[0],admin['id'],member_ids[1],member_ids[2]]
                 items=[('Design system foundations','Done','High','Story',2,5),('Implement workspace navigation','In review','High','Task',1,3),('Build project overview dashboard','In progress','High','Story',1,8),('Add advanced issue filters','In progress','Medium','Task',2,5),('Fix notification badge count','In progress','Urgent','Bug',3,2),('Create onboarding flow','To do','High','Story',4,8),('Keyboard shortcuts for power users','To do','Medium','Task',3,3),('Update empty state illustrations','To do','Low','Task',2,2),('Improve search relevance','In review','Medium','Story',4,5),('Audit accessibility contrast','Backlog','High','Task',2,3),('Export project data as CSV','Backlog','Low','Task',1,3),('Optimize board rendering','Done','Medium','Task',3,5)]
                 for title,status,priority,kind,assignee,points in items:
@@ -142,7 +151,7 @@ def user(request: Request):
     ensure_initialized()
     token = request.cookies.get('orbit_session','')
     with db() as c:
-        row=c.execute('SELECT u.id,u.workspace_id,u.name,u.email,u.role,w.name AS workspace_name FROM sessions s JOIN users u ON u.id=s.user_id JOIN workspaces w ON w.id=u.workspace_id WHERE s.token=%s AND s.expires>%s',(hashlib.sha256(token.encode()).hexdigest(),time.time())).fetchone()
+        row=c.execute('SELECT u.id,u.workspace_id,u.name,u.email,u.role,u.position,u.primary_project_id,u.working_on,p.name AS project_name,w.name AS workspace_name FROM sessions s JOIN users u ON u.id=s.user_id JOIN workspaces w ON w.id=u.workspace_id LEFT JOIN projects p ON p.id=u.primary_project_id WHERE s.token=%s AND s.expires>%s',(hashlib.sha256(token.encode()).hexdigest(),time.time())).fetchone()
     if not row: raise HTTPException(401,'Please sign in')
     if request.method not in ['GET','HEAD','OPTIONS'] and request.headers.get('x-orbit-request') != '1': raise HTTPException(403,'Missing request protection header')
     return dict(row)
@@ -166,6 +175,8 @@ class Signup(BaseModel):
     company_name:str=Field(min_length=1,max_length=120)
     project_name:str=Field(min_length=1,max_length=100)
     project_key:str=Field(pattern=r'^[A-Z][A-Z0-9]{1,9}$')
+    position:str=Field(default='',max_length=120)
+    working_on:str=Field(default='',max_length=500)
     members:list[SignupMember]=Field(default_factory=list,max_length=20)
 
 attempts = {}
@@ -188,7 +199,8 @@ def login(body:Login,request:Request,response:Response):
         if not secrets.compare_digest(password_hash(body.password,expected.split(':')[0]),expected) or not u: raise HTTPException(401,'Email or password is incorrect')
         create_session(c,u['id'],response)
         workspace=c.execute('SELECT name FROM workspaces WHERE id=%s',(u['workspace_id'],)).fetchone()
-    return {'id':u['id'],'workspace_id':u['workspace_id'],'workspace_name':workspace['name'],'name':u['name'],'email':u['email'],'role':u['role']}
+        project=c.execute('SELECT name FROM projects WHERE id=%s',(u['primary_project_id'],)).fetchone() if u['primary_project_id'] else None
+    return {'id':u['id'],'workspace_id':u['workspace_id'],'workspace_name':workspace['name'],'name':u['name'],'email':u['email'],'role':u['role'],'position':u['position'],'primary_project_id':u['primary_project_id'],'project_name':project['name'] if project else None,'working_on':u['working_on']}
 
 @app.post('/api/signup',status_code=201)
 def signup(body:Signup,request:Request,response:Response):
@@ -210,15 +222,15 @@ def signup(body:Signup,request:Request,response:Response):
     try:
         with db() as c:
             workspace=c.execute('INSERT INTO workspaces(name,created_at) VALUES(%s,%s) RETURNING id,name',(body.company_name.strip(),now())).fetchone()
-            account=c.execute('INSERT INTO users(workspace_id,name,email,password,role) VALUES(%s,%s,%s,%s,%s) RETURNING id',(workspace['id'],body.name.strip(),email,password_hash(body.password),'admin')).fetchone()
             project=c.execute('INSERT INTO projects(workspace_id,name,key,description) VALUES(%s,%s,%s,%s) RETURNING id',(workspace['id'],body.project_name.strip(),body.project_key.upper(),'')).fetchone()
+            account=c.execute('INSERT INTO users(workspace_id,name,email,password,role,position,primary_project_id,working_on) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',(workspace['id'],body.name.strip(),email,password_hash(body.password),'admin',body.position.strip(),project['id'],body.working_on.strip())).fetchone()
             for member,member_email in zip(body.members,member_emails):
-                c.execute('INSERT INTO users(workspace_id,name,email,password,role) VALUES(%s,%s,%s,%s,%s)',(workspace['id'],member.name.strip(),member_email,password_hash(member.password),member.role))
+                c.execute('INSERT INTO users(workspace_id,name,email,password,role,primary_project_id) VALUES(%s,%s,%s,%s,%s,%s)',(workspace['id'],member.name.strip(),member_email,password_hash(member.password),member.role,project['id']))
             c.execute('INSERT INTO activity(workspace_id,user_id,action,created_at) VALUES(%s,%s,%s,%s)',(workspace['id'],account['id'],'created the '+body.project_name.strip()+' project',now()))
             create_session(c,account['id'],response)
     except psycopg.errors.UniqueViolation:
         raise HTTPException(409,'An account with this email already exists')
-    return {'id':account['id'],'workspace_id':workspace['id'],'workspace_name':workspace['name'],'name':body.name.strip(),'email':email,'role':'admin','project_id':project['id'],'member_count':len(body.members)+1}
+    return {'id':account['id'],'workspace_id':workspace['id'],'workspace_name':workspace['name'],'name':body.name.strip(),'email':email,'role':'admin','position':body.position.strip(),'primary_project_id':project['id'],'project_name':body.project_name.strip(),'working_on':body.working_on.strip(),'project_id':project['id'],'member_count':len(body.members)+1}
 @app.post('/api/logout')
 def logout(request:Request,response:Response,u=Depends(user)):
     with db() as c: c.execute('DELETE FROM sessions WHERE token=%s',(hashlib.sha256(request.cookies.get('orbit_session','').encode()).hexdigest(),))
@@ -232,7 +244,7 @@ def workspace(u=Depends(user)):
         workspace_row=c.execute('SELECT id,name FROM workspaces WHERE id=%s',(u['workspace_id'],)).fetchone()
         sprints=[dict(r) for r in c.execute('SELECT s.* FROM sprints s JOIN projects p ON p.id=s.project_id WHERE p.workspace_id=%s ORDER BY s.start_date,s.id',(u['workspace_id'],))]
         projects=[dict(r) for r in c.execute('SELECT id,name,key,description FROM projects WHERE workspace_id=%s ORDER BY id',(u['workspace_id'],))]
-        users=[dict(r) for r in c.execute('SELECT id,name,email,role FROM users WHERE workspace_id=%s ORDER BY id',(u['workspace_id'],))]
+        users=[dict(r) for r in c.execute('SELECT u.id,u.name,u.email,u.role,u.position,u.primary_project_id,u.working_on,p.name AS project_name FROM users u LEFT JOIN projects p ON p.id=u.primary_project_id WHERE u.workspace_id=%s ORDER BY u.id',(u['workspace_id'],))]
         issues=[dict(r) for r in c.execute("SELECT i.*,p.key || '-' || i.id::text as key FROM issues i JOIN projects p ON p.id=i.project_id WHERE p.workspace_id=%s ORDER BY i.id DESC",(u['workspace_id'],))]
         activity=[dict(r) for r in c.execute('SELECT a.*,member.name FROM activity a JOIN users member ON member.id=a.user_id WHERE a.workspace_id=%s ORDER BY a.id DESC LIMIT 100',(u['workspace_id'],))]
         return {'workspace':dict(workspace_row),'sprints':sprints,'projects':projects,'users':users,'issues':issues,'activity':activity}
@@ -333,26 +345,35 @@ class Member(BaseModel):
     email:str=Field(min_length=3,max_length=200)
     password:str=Field(min_length=12,max_length=200)
     role:str='member'
+    position:str=Field(default='',max_length=120)
+    primary_project_id:int|None=None
+    working_on:str=Field(default='',max_length=500)
 @app.post('/api/members',status_code=201)
 def member(b:Member,u=Depends(user)):
     if u['role']!='admin': raise HTTPException(403,'Administrator access required')
     if b.role not in ['admin','member','viewer']: raise HTTPException(422,'Invalid role')
     with db() as c:
-        try: c.execute('INSERT INTO users(workspace_id,name,email,password,role) VALUES(%s,%s,%s,%s,%s)',(u['workspace_id'],b.name,b.email.lower().strip(),password_hash(b.password),b.role))
+        if b.primary_project_id and not c.execute('SELECT id FROM projects WHERE id=%s AND workspace_id=%s',(b.primary_project_id,u['workspace_id'])).fetchone(): raise HTTPException(422,'Project not found in this workspace')
+        try: c.execute('INSERT INTO users(workspace_id,name,email,password,role,position,primary_project_id,working_on) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',(u['workspace_id'],b.name,b.email.lower().strip(),password_hash(b.password),b.role,b.position.strip(),b.primary_project_id,b.working_on.strip()))
         except psycopg.errors.UniqueViolation: raise HTTPException(409,'Email already exists')
         audit(c,u,None,'added '+b.name+' to the workspace')
     return {'ok':True}
 
 class Profile(BaseModel):
     name:str=Field(min_length=1,max_length=100)
+    position:str=Field(default='',max_length=120)
+    primary_project_id:int|None=None
+    working_on:str=Field(default='',max_length=500)
 @app.put('/api/profile')
 def update_profile(b:Profile,u=Depends(user)):
     name=b.name.strip()
     if not name: raise HTTPException(422,'Profile name is required')
     with db() as c:
-        c.execute('UPDATE users SET name=%s WHERE id=%s AND workspace_id=%s',(name,u['id'],u['workspace_id']))
-        audit(c,u,None,'updated their profile name')
-    return {**u,'name':name}
+        if b.primary_project_id and not c.execute('SELECT id FROM projects WHERE id=%s AND workspace_id=%s',(b.primary_project_id,u['workspace_id'])).fetchone(): raise HTTPException(422,'Project not found in this workspace')
+        c.execute('UPDATE users SET name=%s,position=%s,primary_project_id=%s,working_on=%s WHERE id=%s AND workspace_id=%s',(name,b.position.strip(),b.primary_project_id,b.working_on.strip(),u['id'],u['workspace_id']))
+        project=c.execute('SELECT name FROM projects WHERE id=%s',(b.primary_project_id,)).fetchone() if b.primary_project_id else None
+        audit(c,u,None,'updated their profile details')
+    return {**u,'name':name,'position':b.position.strip(),'primary_project_id':b.primary_project_id,'project_name':project['name'] if project else None,'working_on':b.working_on.strip()}
 @app.get('/api/health')
 def health():
     if not DATABASE_URL:

@@ -22,17 +22,28 @@ const tone = (i) =>
       : "planned";
 export default function SprintPlanner({
   issues,
+  sprints = [],
   users,
   editable,
   open,
   create,
+  createSprint,
 }) {
   const [mode, setMode] = useState("Calendar"),
     [month, setMonth] = useState(
       () => new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12),
     ),
     [sprint, setSprint] = useState(""),
-    [selected, setSelected] = useState(null);
+    [selected, setSelected] = useState(null),
+    [showSprintForm, setShowSprintForm] = useState(false),
+    [savingSprint, setSavingSprint] = useState(false),
+    [sprintError, setSprintError] = useState(""),
+    [sprintDraft, setSprintDraft] = useState(() => {
+      const start = new Date();
+      const end = new Date();
+      end.setDate(end.getDate() + 13);
+      return { name: "", goal: "", start_date: iso(start), end_date: iso(end) };
+    });
   const today = iso(new Date()),
     year = month.getFullYear(),
     m = month.getMonth(),
@@ -45,7 +56,10 @@ export default function SprintPlanner({
     (_, n) => new Date(year, m, n - offset + 1, 12),
   );
   const names = [
-    ...new Set(issues.map((i) => i.sprint).filter(Boolean)),
+    ...new Set([
+      ...sprints.map((item) => item.name),
+      ...issues.map((i) => i.sprint).filter(Boolean),
+    ]),
   ].sort();
   const filtered = issues.filter((i) => !sprint || i.sprint === sprint);
   const scheduled = filtered.filter((i) => i.start_date && i.due_date);
@@ -68,26 +82,103 @@ export default function SprintPlanner({
           <h2>Sprint calendar</h2>
           <p>Plan the days. See the bigger picture.</p>
         </div>
-        <div className="planner-switch" aria-label="Schedule view">
-          {[
-            ["Calendar", CalendarDays],
-            ["Timeline", GanttChart],
-          ].map(([name, Icon]) => (
+        <div className="planner-heading-actions">
+          {editable && (
             <button
-              key={name}
-              aria-pressed={mode === name}
-              className={mode === name ? "chosen" : ""}
+              className="secondary"
               onClick={() => {
-                setMode(name);
-                setSelected(null);
+                setShowSprintForm(!showSprintForm);
+                setSprintError("");
               }}
             >
-              <Icon size={16} />
-              {name}
+              <Plus size={15} /> Create sprint
             </button>
-          ))}
+          )}
+          <div className="planner-switch" aria-label="Schedule view">
+            {[
+              ["Calendar", CalendarDays],
+              ["Timeline", GanttChart],
+            ].map(([name, Icon]) => (
+              <button
+                key={name}
+                aria-pressed={mode === name}
+                className={mode === name ? "chosen" : ""}
+                onClick={() => {
+                  setMode(name);
+                  setSelected(null);
+                }}
+              >
+                <Icon size={16} />
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+      {showSprintForm && (
+        <form
+          className="sprint-create"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setSavingSprint(true);
+            setSprintError("");
+            try {
+              await createSprint(sprintDraft);
+              setSprint(sprintDraft.name.trim());
+              setSprintDraft((previous) => ({ ...previous, name: "", goal: "" }));
+              setShowSprintForm(false);
+            } catch (error) {
+              setSprintError(error.message);
+            } finally {
+              setSavingSprint(false);
+            }
+          }}
+        >
+          <label>
+            Sprint name
+            <input
+              required
+              maxLength={100}
+              value={sprintDraft.name}
+              onChange={(event) => setSprintDraft({ ...sprintDraft, name: event.target.value })}
+              placeholder="Sprint 1"
+            />
+          </label>
+          <label>
+            Goal
+            <input
+              maxLength={2000}
+              value={sprintDraft.goal}
+              onChange={(event) => setSprintDraft({ ...sprintDraft, goal: event.target.value })}
+              placeholder="What should the team achieve?"
+            />
+          </label>
+          <label>
+            Start date
+            <input
+              type="date"
+              required
+              value={sprintDraft.start_date}
+              max={sprintDraft.end_date}
+              onChange={(event) => setSprintDraft({ ...sprintDraft, start_date: event.target.value })}
+            />
+          </label>
+          <label>
+            End date
+            <input
+              type="date"
+              required
+              value={sprintDraft.end_date}
+              min={sprintDraft.start_date}
+              onChange={(event) => setSprintDraft({ ...sprintDraft, end_date: event.target.value })}
+            />
+          </label>
+          <button className="primary" disabled={savingSprint}>
+            {savingSprint ? "Creating…" : "Create sprint"}
+          </button>
+          {sprintError && <div className="error">{sprintError}</div>}
+        </form>
+      )}
       <div className="planner-tools">
         <div className="month-controls">
           <button aria-label="Previous month" onClick={() => shift(-1)}>
@@ -119,19 +210,26 @@ export default function SprintPlanner({
             Today
           </button>
         </div>
-        <select
-          aria-label="Filter by sprint"
-          value={sprint}
-          onChange={(e) => {
-            setSprint(e.target.value);
-            setSelected(null);
-          }}
-        >
-          <option value="">All sprints</option>
-          {names.map((s) => (
-            <option key={s}>{s}</option>
-          ))}
-        </select>
+        <div className="sprint-tools">
+          <select
+            aria-label="Filter by sprint"
+            value={sprint}
+            onChange={(e) => {
+              setSprint(e.target.value);
+              setSelected(null);
+            }}
+          >
+            <option value="">All sprints</option>
+            {names.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+          {editable && sprint && (
+            <button className="primary" onClick={() => create("", sprint)}>
+              <Plus size={14} /> Issue in {sprint}
+            </button>
+          )}
+        </div>
       </div>
       <div className="planner-summary">
         <span>

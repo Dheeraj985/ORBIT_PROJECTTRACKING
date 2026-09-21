@@ -1,6 +1,6 @@
 # Orbit
 
-A working Jira-style project workspace built with Python/FastAPI, React, and PostgreSQL. Includes project creation, Kanban drag and drop, searchable issue tables, backlog, sprint grouping, story points, assignees, priorities, comments, team workload reports, workspace activity, and administrator/member/viewer roles.
+A working Jira-style project workspace built with Python/FastAPI, React, and PostgreSQL. Includes self-service company signup, isolated workspaces, initial team onboarding, editable profiles, project and sprint creation, Kanban drag and drop, searchable issue tables, story points, assignees, priorities, comments, team workload reports, workspace activity, and administrator/member/viewer roles.
 
 ## Deploy with GitHub, Vercel, and Supabase
 
@@ -28,16 +28,16 @@ Create a repository from this directory and push the source. The generated `publ
    | Name | Value |
    | --- | --- |
    | `DATABASE_URL` | Supabase Transaction pooler URL on port `6543` |
-   | `ORBIT_ADMIN_EMAIL` | The email used for the first Orbit administrator |
-   | `ORBIT_ADMIN_PASSWORD` | A unique password of at least 12 characters |
+   | `ORBIT_ADMIN_EMAIL` | Optional bootstrap administrator email |
+   | `ORBIT_ADMIN_PASSWORD` | Optional bootstrap password of at least 12 characters |
    | `ORBIT_SEED_DEMO` | `1` to create sample data, otherwise `0` |
    | `ORBIT_SECURE_COOKIES` | `1` |
    | `ORBIT_REQUIRE_SSL` | `1` |
 
 4. Deploy. Open `/api/health` on the assigned Vercel domain and confirm it returns `{"status":"ok"}`.
-5. Open the root URL and sign in with `ORBIT_ADMIN_EMAIL` and `ORBIT_ADMIN_PASSWORD`.
+5. Open the root URL and create a workspace, or sign in with the optional bootstrap administrator credentials.
 
-The administrator variables are used only when the database has no users. Changing them later does not reset the existing administrator password. Choose the Vercel Function region nearest the Supabase project to reduce database latency.
+The administrator variables are optional and are used only when the database has no users. Without them, the first account is created through the signup form. Changing them later does not reset an existing administrator password. Choose the Vercel Function region nearest the Supabase project to reduce database latency.
 
 ## Run locally
 
@@ -91,21 +91,21 @@ cd ../frontend
 npm run build
 ```
 
-Integration tests cover unauthenticated access, login/logout, issue persistence, stale-edit conflicts, comments, viewer permissions, request protection, and validation.
+Integration tests cover signup, workspace isolation, profile editing, sprint creation, issue assignment, unauthenticated access, login/logout, issue persistence, stale-edit conflicts, comments, viewer permissions, request protection, and validation.
 
 ## Access model
 
-- Admin: manage team accounts and create/edit projects, issues, and comments.
+- Admin: create a company workspace and first project, manage team accounts, and create/edit projects, sprints, issues, and comments.
 - Member: create/edit projects, issues, and comments.
 - Viewer: read-only access to the entire workspace.
 
-All workspace members can see all projects. This is a single-workspace application; it does not implement tenant or project-level isolation. Passwords use salted PBKDF2-SHA256 with 600,000 iterations. Sessions use opaque random tokens, store token hashes in the database, expire after 12 hours, and use HttpOnly/SameSite cookies. Writes require a custom request header. Issue versions prevent silently overwriting stale edits. Database queries use bound values.
+Each account belongs to one isolated company workspace. New signups create an administrator, company, first project, and any initial members in one transaction. All members inside that workspace can see all of its projects; project-level permissions are not implemented. Passwords use salted PBKDF2-SHA256 with 600,000 iterations. Sessions use opaque random tokens, store token hashes in the database, expire after 12 hours, and use HttpOnly/SameSite cookies. Writes require a custom request header. Issue versions prevent silently overwriting stale edits. Database queries use bound values.
 
 ## Enterprise rollout boundary
 
-This is a runnable application foundation, not a certified enterprise SaaS or complete Jira replacement. Before exposing it publicly, configure TLS through a reverse proxy and set `ORBIT_SECURE_COOKIES=1`; restrict origins and trusted hosts; keep regular backups and run schema migrations deliberately as the app evolves; use a shared rate limiter; add SSO/MFA, password reset and account deactivation, project-level permissions, tenant isolation, retention policy, monitoring, and security review. The built-in login limiter is process-local and intended for a single-process local deployment.
+This is a runnable application foundation, not a certified enterprise SaaS or complete Jira replacement. Before a large public rollout, configure TLS through a reverse proxy and set `ORBIT_SECURE_COOKIES=1`; restrict origins and trusted hosts; keep regular backups and run schema migrations deliberately as the app evolves; use a shared rate limiter; add email verification, invitations, SSO/MFA, password reset and account deactivation, project-level permissions, retention policy, monitoring, and security review. The built-in login limiter is process-local and intended for a single-process local deployment.
 
-Sprint planning includes a monthly calendar and a Gantt-style timeline, grouped by editable sprint name. Set both start and due dates on an issue to schedule it; undated issues appear in Ready to schedule. Month navigation, sprint filters, day agendas, and date-cell issue creation are available. Existing databases gain date columns automatically at startup. It does not implement sprint dates, capacity planning, start/complete transitions, velocity history, or burndown. Reports reflect current persisted issue counts. Activity is a workspace history, not an immutable compliance audit trail. Attachments, notifications, external integrations, and automated delivery pipelines are not included.
+Sprint planning includes stored sprint names, goals, start/end dates, a monthly calendar, and a Gantt-style timeline. Issues can be created inside a sprint and assigned to workspace members. Set both start and due dates on an issue to schedule it; undated issues appear in Ready to schedule. Month navigation, sprint filters, day agendas, and date-cell issue creation are available. Existing databases gain the required workspace and date columns automatically at startup. Capacity planning, start/complete transitions, velocity history, and burndown are not implemented. Reports reflect current persisted issue counts. Activity is a workspace history, not an immutable compliance audit trail. Attachments, notifications, external integrations, and automated delivery pipelines are not included.
 
 ## Container deployment
 
@@ -118,6 +118,3 @@ docker compose up --build -d
 ```
 
 Open http://localhost:8017. The port binds to loopback by default. Put a TLS reverse proxy in front of it for network access and apply the enterprise rollout controls above. Stop the local development server before starting the container on the same port.
-# ORBIT_PROJECTTRACKING
-# ORBIT_PROJECTTRACKING
-# ORBIT_PROJECTTRACKING

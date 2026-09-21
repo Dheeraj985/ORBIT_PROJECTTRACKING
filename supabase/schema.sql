@@ -1,7 +1,14 @@
 CREATE EXTENSION IF NOT EXISTS citext;
 
+CREATE TABLE IF NOT EXISTS workspaces (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
@@ -16,8 +23,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS projects (
   id SERIAL PRIMARY KEY,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
   name TEXT NOT NULL,
-  key TEXT UNIQUE NOT NULL,
+  key TEXT NOT NULL,
   description TEXT NOT NULL
 );
 
@@ -59,6 +67,7 @@ CREATE TABLE IF NOT EXISTS comments (
 
 CREATE TABLE IF NOT EXISTS activity (
   id SERIAL PRIMARY KEY,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
   user_id INTEGER REFERENCES users(id),
   issue_id INTEGER REFERENCES issues(id),
   action TEXT NOT NULL,
@@ -66,6 +75,8 @@ CREATE TABLE IF NOT EXISTS activity (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_workspace_key ON projects(workspace_id, key);
 CREATE INDEX IF NOT EXISTS idx_issues_project_status ON issues(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_comments_issue_id ON comments(issue_id);
-CREATE INDEX IF NOT EXISTS idx_activity_created_at ON activity(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_workspace ON activity(workspace_id, created_at DESC);

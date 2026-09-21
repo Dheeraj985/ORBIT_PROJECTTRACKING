@@ -43,7 +43,11 @@ async function api(path, method = "GET", data) {
   const b = await r.json();
   if (!r.ok)
     throw Error(
-      typeof b.detail === "string" ? b.detail : "Please check the form fields.",
+      typeof b.detail === "string"
+        ? b.detail
+        : b.detail?.code
+          ? b.detail.code.replaceAll("_", " ")
+          : "Please check the form fields.",
     );
   return b;
 }
@@ -75,10 +79,12 @@ function App() {
   const [me, setMe] = useState(null),
     [loading, setLoading] = useState(true),
     [data, setData] = useState({
+      workspace: null,
       projects: [],
       issues: [],
       users: [],
       activity: [],
+      sprints: [],
     }),
     [projectId, setProjectId] = useState(1),
     [view, setView] = useState("Board"),
@@ -88,7 +94,9 @@ function App() {
     [modal, setModal] = useState(null),
     [error, setError] = useState(""),
     [toast, setToast] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [authMode, setAuthMode] = useState("signin"),
+    [signupMembers, setSignupMembers] = useState([]);
   const refresh = async () => {
     const d = await api("/workspace");
     setData(d);
@@ -127,6 +135,12 @@ function App() {
     }
   };
   const project = data.projects.find((p) => p.id === projectId),
+    projectSprints = (data.sprints || []).filter((s) => s.project_id === projectId),
+    todayString = new Date().toISOString().slice(0, 10),
+    activeSprint =
+      projectSprints.find(
+        (s) => s.start_date <= todayString && s.end_date >= todayString,
+      ) || projectSprints[0],
     all = data.issues.filter((i) => i.project_id === projectId),
     issues = all.filter(
       (i) =>
@@ -189,15 +203,26 @@ function App() {
           <small>A little more clarity. A lot more progress.</small>
         </div>
         <form
-          className="login-form"
+          className={"login-form" + (authMode === "signup" ? " signup-form" : "")}
           onSubmit={async (e) => {
             e.preventDefault();
             setError("");
             setBusy(true);
             try {
               const f = new FormData(e.target);
-              setMe(await api("/login", "POST", Object.fromEntries(f)));
+              const payload = Object.fromEntries(f);
+              if (authMode === "signup")
+                payload.members = signupMembers.filter(
+                  (member) => member.name || member.email || member.password,
+                );
+              const account = await api(
+                authMode === "signup" ? "/signup" : "/login",
+                "POST",
+                payload,
+              );
+              setMe(account);
               await refresh();
+              if (authMode === "signup") setView("Team");
             } catch (e) {
               setError(e.message);
             } finally {
@@ -205,9 +230,136 @@ function App() {
             }
           }}
         >
-          <span className="eyebrow">YOUR NEXT CHAPTER STARTS HERE</span>
-          <h2>Welcome back</h2>
-          <p>Sign in to your team's workspace.</p>
+          <span className="eyebrow">
+            {authMode === "signup" ? "START A NEW WORKSPACE" : "WELCOME BACK"}
+          </span>
+          <h2>{authMode === "signup" ? "Create your workspace" : "Welcome back"}</h2>
+          <p>
+            {authMode === "signup"
+              ? "Set up your company and first project. You’ll be the workspace admin."
+              : "Sign in to your team's workspace."}
+          </p>
+          {authMode === "signup" && (
+            <>
+              <label>
+                Your name
+                <input name="name" maxLength={100} placeholder="Alex Morgan" required />
+              </label>
+              <label>
+                Company name
+                <input name="company_name" maxLength={120} placeholder="Acme Studio" required />
+              </label>
+              <div className="auth-grid">
+                <label>
+                  First project
+                  <input name="project_name" maxLength={100} placeholder="Website launch" required />
+                </label>
+                <label>
+                  Project key
+                  <input
+                    name="project_key"
+                    pattern="[A-Z][A-Z0-9]{1,9}"
+                    maxLength={10}
+                    placeholder="WEB"
+                    onInput={(e) => { e.currentTarget.value = e.currentTarget.value.toUpperCase(); }}
+                    required
+                  />
+                </label>
+              </div>
+              <div className="signup-team">
+                <div className="signup-team-heading">
+                  <div>
+                    <strong>Project members</strong>
+                    <small>Add the people who should start in this workspace.</small>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      setSignupMembers((members) => [
+                        ...members,
+                        { name: "", email: "", password: "", role: "member" },
+                      ])
+                    }
+                  >
+                    <Plus size={14} /> Add member
+                  </button>
+                </div>
+                {signupMembers.map((member, index) => (
+                  <div className="signup-member" key={index}>
+                    <input
+                      aria-label={`Member ${index + 1} name`}
+                      maxLength={100}
+                      placeholder="Member name"
+                      value={member.name}
+                      onChange={(event) =>
+                        setSignupMembers((members) =>
+                          members.map((item, memberIndex) =>
+                            memberIndex === index ? { ...item, name: event.target.value } : item,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                    <input
+                      aria-label={`Member ${index + 1} email`}
+                      type="email"
+                      placeholder="member@company.com"
+                      value={member.email}
+                      onChange={(event) =>
+                        setSignupMembers((members) =>
+                          members.map((item, memberIndex) =>
+                            memberIndex === index ? { ...item, email: event.target.value } : item,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                    <input
+                      aria-label={`Member ${index + 1} initial password`}
+                      type="password"
+                      minLength={12}
+                      placeholder="Initial password"
+                      value={member.password}
+                      onChange={(event) =>
+                        setSignupMembers((members) =>
+                          members.map((item, memberIndex) =>
+                            memberIndex === index ? { ...item, password: event.target.value } : item,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                    <select
+                      aria-label={`Member ${index + 1} role`}
+                      value={member.role}
+                      onChange={(event) =>
+                        setSignupMembers((members) =>
+                          members.map((item, memberIndex) =>
+                            memberIndex === index ? { ...item, role: event.target.value } : item,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="member">Member</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                    <button
+                      type="button"
+                      aria-label={`Remove member ${index + 1}`}
+                      onClick={() =>
+                        setSignupMembers((members) =>
+                          members.filter((_, memberIndex) => memberIndex !== index),
+                        )
+                      }
+                    >
+                      <X size={17} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           <label>
             Email address
             <input
@@ -223,15 +375,38 @@ function App() {
               name="password"
               type="password"
               placeholder="Enter your password"
+              minLength={12}
               required
             />
           </label>
           {error && <div className="error">{error}</div>}
           <button className="primary" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in to Orbit"}
+            {busy
+              ? authMode === "signup"
+                ? "Creating workspace…"
+                : "Signing in…"
+              : authMode === "signup"
+                ? "Create workspace"
+                : "Sign in to Orbit"}
             <ArrowUpRight size={17} />
           </button>
-          <small>Use the administrator credentials configured at setup.</small>
+          <button
+            type="button"
+            className="auth-switch"
+            onClick={() => {
+              setAuthMode(authMode === "signup" ? "signin" : "signup");
+              setError("");
+            }}
+          >
+            {authMode === "signup"
+              ? "Already have a workspace? Sign in"
+              : "New to Orbit? Create a workspace"}
+          </button>
+          <small>
+            {authMode === "signup"
+              ? "You can add more people later from Team & access."
+              : "Use the credentials for your workspace account."}
+          </small>
         </form>
       </div>
     );
@@ -242,9 +417,11 @@ function App() {
           <Orbit size={29} /> orbit<span>TEAM SPACE</span>
         </div>
         <button className="workspace" onClick={() => setView("Projects")}>
-          <span className="workspace-icon">O</span>
+          <span className="workspace-icon">
+            {(data.workspace?.name || "O").charAt(0).toUpperCase()}
+          </span>
           <div>
-            Orbit workspace
+            {data.workspace?.name || "Orbit workspace"}
             <small>
               {data.users.length} members · {data.projects.length} projects
             </small>
@@ -483,8 +660,10 @@ function App() {
                       <span className="sprint-icon">
                         <CalendarDays size={18} />
                       </span>
-                      <strong>Sprint 24</strong>
-                      <span className="pill">Current sprint</span>
+                      <strong>{activeSprint?.name || "No sprint yet"}</strong>
+                      <span className="pill">
+                        {activeSprint ? "Current sprint" : "Plan your first sprint"}
+                      </span>
                       <span className="muted">
                         Small steps. Meaningful progress.
                       </span>
@@ -785,10 +964,25 @@ function App() {
           )}
           {view === "Team" && (
             <div className="panel">
+              <div className="profile-settings">
+                <div>
+                  <span className="eyebrow">YOUR PROFILE</span>
+                  <h3>{me.name}</h3>
+                  <p>{me.email} · {me.role}</p>
+                </div>
+                <button
+                  className="secondary"
+                  onClick={() => setModal({ kind: "profile", item: { name: me.name } })}
+                >
+                  <Settings size={15} /> Edit profile name
+                </button>
+              </div>
               <div className="section-heading">
                 <div>
                   <h2>Your people</h2>
-                  <p>{data.users.length} members in your workspace</p>
+                  <p>
+                    {data.users.length} members in {data.workspace?.name || "your workspace"}
+                  </p>
                 </div>
                 {me.role === "admin" && (
                   <button
@@ -832,6 +1026,22 @@ function App() {
           busy={busy}
           error={error}
           save={async (kind, b) => {
+            if (kind === "profile") {
+              setBusy(true);
+              setError("");
+              try {
+                const updated = await api("/profile", "PUT", { name: b.name });
+                setMe(updated);
+                await refresh();
+                setToast("Profile updated");
+                setModal(null);
+              } catch (e) {
+                setError(e.message);
+              } finally {
+                setBusy(false);
+              }
+              return;
+            }
             const ok = await run(
               () =>
                 api(
@@ -966,7 +1176,9 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
               : "Create an issue"
             : modal.kind === "project"
               ? "Create a project"
-              : "Add team member"}
+              : modal.kind === "profile"
+                ? "Edit profile name"
+                : "Add team member"}
         </h2>
         <form
           onSubmit={(e) => {
@@ -1079,6 +1291,17 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
                   </label>
                 </div>
               </>
+            ) : modal.kind === "profile" ? (
+              <label>
+                Profile name
+                <input
+                  autoFocus
+                  required
+                  maxLength={100}
+                  value={b.name}
+                  onChange={(e) => field("name", e.target.value)}
+                />
+              </label>
             ) : (
               <>
                 <label>
@@ -1168,7 +1391,9 @@ function Modal({ modal, close, users, editable, busy, error, save, sprints=[] })
                     ? "Save issue"
                     : modal.kind === "project"
                       ? "Create project"
-                      : "Add member"}
+                      : modal.kind === "profile"
+                        ? "Save profile"
+                        : "Add member"}
               </button>
             )}
           </div>

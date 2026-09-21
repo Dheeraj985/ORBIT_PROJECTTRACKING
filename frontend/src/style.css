@@ -813,6 +813,24 @@ tbody tr:hover {
 .member-row .pill {
   margin-left: auto;
 }
+.profile-settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px;
+  margin-bottom: 28px;
+  border: 1px solid #dceae8;
+  border-radius: 10px;
+  background: #f6fbfa;
+}
+.profile-settings h3 {
+  margin: 8px 0 4px;
+}
+.profile-settings p {
+  color: #718987;
+  font-size: 12px;
+}
 .project-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1054,6 +1072,10 @@ fieldset {
   align-self: center;
   justify-self: center;
 }
+.login-form.signup-form {
+  width: 570px;
+  padding: 36px 0;
+}
 .login-form h2 {
   font-size: 30px;
   margin-top: 17px;
@@ -1073,6 +1095,61 @@ fieldset {
   margin-top: 24px;
   font-size: 10px;
   line-height: 1.7;
+}
+.auth-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  gap: 12px;
+}
+.signup-team {
+  margin: 8px 0 14px;
+  padding: 13px;
+  border: 1px solid #d8e8e5;
+  border-radius: 10px;
+  background: #f7fbfa;
+}
+.signup-team-heading,
+.signup-member {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.signup-team-heading {
+  justify-content: space-between;
+}
+.signup-team-heading div {
+  display: grid;
+  gap: 3px;
+}
+.signup-team-heading small {
+  color: #78918f;
+  font-size: 10px;
+}
+.signup-team-heading .secondary {
+  white-space: nowrap;
+}
+.signup-member {
+  margin-top: 10px;
+}
+.signup-member input {
+  min-width: 0;
+}
+.signup-member input:nth-child(2) {
+  flex: 1.25;
+}
+.signup-member select {
+  width: 100px;
+}
+.signup-member > button {
+  flex: 0 0 auto;
+  color: #8a5d58;
+}
+.auth-switch {
+  width: 100%;
+  margin-top: 14px;
+  color: #087f82;
+  font-size: 12px;
+  font-weight: 600;
 }
 @media (min-width: 1500px) {
   .page {
@@ -1462,6 +1539,34 @@ textarea:focus-visible {
   padding: 4px;
   border-radius: 9px;
   gap: 4px;
+}
+.planner-heading-actions,
+.sprint-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sprint-create {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr minmax(130px, .7fr) minmax(130px, .7fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  margin: -8px 0 20px;
+  border: 1px solid #d8e8e5;
+  border-radius: 10px;
+  background: #f7fbfa;
+}
+.sprint-create label {
+  display: grid;
+  gap: 7px;
+  color: #617b79;
+  font-size: 11px;
+  font-weight: 600;
+}
+.sprint-create .error {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 .planner-switch button {
   padding: 9px 15px;
@@ -1891,6 +1996,31 @@ textarea:focus-visible {
   }
   .planner-tools {
     flex-wrap: wrap;
+  }
+  .planner-heading-actions,
+  .sprint-tools,
+  .profile-settings {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .sprint-create {
+    grid-template-columns: 1fr;
+  }
+  .auth-grid {
+    grid-template-columns: 1fr;
+  }
+  .login-form.signup-form {
+    width: min(570px, 90%);
+  }
+  .signup-member {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+  }
+  .signup-member input:nth-child(2),
+  .signup-member input:nth-child(3) {
+    grid-column: span 1;
   }
   .month-controls {
     gap: 5px;

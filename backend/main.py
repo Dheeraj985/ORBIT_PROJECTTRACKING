@@ -1,4 +1,4 @@
-import os, hashlib, secrets, time
+import os, hashlib, secrets, time, threading
 import psycopg
 import psycopg.rows
 import psycopg.errors
@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 DATABASE_URL = os.getenv('DATABASE_URL')
 app = FastAPI(title='Orbit Project Management', version='1.0.0')
 STATUSES = ['Backlog', 'To do', 'In progress', 'In review', 'Done']
+_initialized = False
+_init_lock = threading.Lock()
 
 def now(): return datetime.now(timezone.utc).isoformat()
 
@@ -77,10 +79,17 @@ def initialize():
 
         c.execute("INSERT INTO sprints(project_id,name) SELECT DISTINCT project_id, trim(sprint) FROM issues WHERE trim(sprint) != '' ON CONFLICT DO NOTHING")
 
-@app.on_event('startup')
-def startup(): initialize()
+def ensure_initialized():
+    global _initialized
+    if _initialized:
+        return
+    with _init_lock:
+        if not _initialized:
+            initialize()
+            _initialized = True
 
 def user(request: Request):
+    ensure_initialized()
     token = request.cookies.get('orbit_session','')
     with db() as c:
         row=c.execute('SELECT u.id,u.name,u.email,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=%s AND s.expires>%s',(hashlib.sha256(token.encode()).hexdigest(),time.time())).fetchone()
@@ -98,6 +107,7 @@ class Login(BaseModel):
 attempts = {}
 @app.post('/api/login')
 def login(body:Login,request:Request,response:Response):
+    ensure_initialized()
     ip=request.client.host
     recent=[t for t in attempts.get(ip,[]) if t>time.time()-300]
     if len(recent)>=15: raise HTTPException(429,'Too many attempts. Try again in five minutes.')
@@ -228,7 +238,19 @@ def member(b:Member,u=Depends(user)):
         audit(c,u,None,'added '+b.name+' to the workspace')
     return {'ok':True}
 @app.get('/api/health')
-def health(): return {'status':'ok'}
+def health():
+    if not DATABASE_URL:
+        raise HTTPException(503, 'DATABASE_URL is not configured in Vercel')
+    try:
+        ensure_initialized()
+        with db() as c:
+            c.execute('SELECT 1')
+        return {'status':'ok'}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print('Orbit database health check failed:', type(exc).__name__)
+        raise HTTPException(503, 'Database connection failed. Check the Supabase Transaction pooler DATABASE_URL and redeploy.')
 
 ROOT=Path(__file__).resolve().parents[1]
 DIST=ROOT/'public' if (ROOT/'public').exists() else ROOT/'frontend'/'dist'

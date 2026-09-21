@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a unique password}
+      POSTGRES_DB: orbit
+    volumes:
+      - orbit-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit -d orbit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  orbit:
+    build: .
+    ports:
+      - "127.0.0.1:8017:8017"
+    environment:
+      DATABASE_URL: postgresql://orbit:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a unique password}@db:5432/orbit
+      ORBIT_ADMIN_EMAIL: ${ORBIT_ADMIN_EMAIL:-admin@orbit.local}
+      ORBIT_ADMIN_PASSWORD: ${ORBIT_ADMIN_PASSWORD:?Set ORBIT_ADMIN_PASSWORD to a unique password of 12+ characters}
+      ORBIT_SEED_DEMO: ${ORBIT_SEED_DEMO:-0}
+      ORBIT_SECURE_COOKIES: ${ORBIT_SECURE_COOKIES:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8017/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  orbit-pgdata:

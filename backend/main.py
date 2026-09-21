@@ -88,6 +88,35 @@ def ensure_initialized():
             initialize()
             _initialized = True
 
+def database_error_code(exc):
+    message = str(exc).lower()
+    if 'password authentication failed' in message or 'authentication failed' in message:
+        return 'authentication_failed'
+    if 'tenant or user not found' in message:
+        return 'pooler_tenant_not_found'
+    if 'name or service not known' in message or 'nodename nor servname' in message or 'could not translate host name' in message:
+        return 'dns_failed'
+    if 'timeout' in message or 'timed out' in message:
+        return 'connection_timeout'
+    if 'network is unreachable' in message:
+        return 'network_unreachable'
+    if 'connection refused' in message:
+        return 'connection_refused'
+    if 'ssl' in message or 'certificate' in message:
+        return 'ssl_failed'
+    if 'permission denied' in message or 'insufficient privilege' in message:
+        return 'permission_denied'
+    return 'database_unavailable'
+
+def database_diagnostic(exc, stage):
+    return {
+        'status': 'error',
+        'stage': stage,
+        'code': database_error_code(exc),
+        'error_type': type(exc).__name__,
+        'sqlstate': getattr(exc, 'sqlstate', None),
+    }
+
 def user(request: Request):
     ensure_initialized()
     token = request.cookies.get('orbit_session','')
@@ -242,15 +271,19 @@ def health():
     if not DATABASE_URL:
         raise HTTPException(503, 'DATABASE_URL is not configured in Vercel')
     try:
-        ensure_initialized()
         with db() as c:
             c.execute('SELECT 1')
-        return {'status':'ok'}
-    except HTTPException:
-        raise
     except Exception as exc:
-        print('Orbit database health check failed:', type(exc).__name__)
-        raise HTTPException(503, 'Database connection failed. Check the Supabase Transaction pooler DATABASE_URL and redeploy.')
+        diagnostic = database_diagnostic(exc, 'connection')
+        print('Orbit database connection check failed:', diagnostic)
+        raise HTTPException(503, diagnostic)
+    try:
+        ensure_initialized()
+    except Exception as exc:
+        diagnostic = database_diagnostic(exc, 'schema_initialization')
+        print('Orbit database schema initialization failed:', diagnostic)
+        raise HTTPException(503, diagnostic)
+    return {'status':'ok'}
 
 ROOT=Path(__file__).resolve().parents[1]
 DIST=ROOT/'public' if (ROOT/'public').exists() else ROOT/'frontend'/'dist'

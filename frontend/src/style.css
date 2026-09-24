@@ -315,15 +315,6 @@ header span {
 .header-right {
   font-size: 10px;
 }
-.save-status .live-dot {
-  margin-right: -5px;
-}
-.header-divider {
-  height: 16px;
-  width: 1px;
-  background: #dfe6e5;
-  margin: 0 8px;
-}
 .account-menu {
   position: relative;
 }
@@ -1589,10 +1580,6 @@ fieldset {
   }
   .header-right {
     display: flex;
-  }
-  .save-status,
-  .header-divider {
-    display: none;
   }
   .account-trigger {
     padding: 3px;

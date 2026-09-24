@@ -668,15 +668,6 @@ function App() {
             <span>{project?.name || "Projects"}</span>
           </div>
           <div className="header-right">
-            <span className="save-status">
-              <span className="live-dot" />{" "}
-              {busy
-                ? "Saving changes…"
-                : error
-                  ? "Action needs attention"
-                  : "All changes saved"}
-            </span>
-            <span className="header-divider" />
             <div className="account-menu">
               <button
                 className="account-trigger"

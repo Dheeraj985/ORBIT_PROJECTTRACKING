@@ -65,6 +65,121 @@ const kindIcon = (t) =>
   ) : (
     <Check size={13} />
   );
+const localDate = (value = new Date()) =>
+  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+const priorityOrder = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
+function buildDailyBrief(issues, users, me, learnFromWorkspace) {
+  const today = localDate();
+  const open = issues.filter((issue) => issue.status !== "Done");
+  const dueToday = open.filter((issue) => issue.due_date === today);
+  const overdue = open.filter((issue) => issue.due_date && issue.due_date < today);
+  const scheduled = open.filter(
+    (issue) =>
+      issue.start_date &&
+      issue.due_date &&
+      issue.start_date <= today &&
+      issue.due_date >= today,
+  );
+  const inProgress = open.filter((issue) => issue.status === "In progress");
+  const completedToday = issues.filter(
+    (issue) => issue.status === "Done" && issue.updated_at?.slice(0, 10) === today,
+  );
+  const candidates = new Map();
+  [...overdue, ...dueToday, ...scheduled, ...inProgress].forEach((issue) =>
+    candidates.set(issue.id, issue),
+  );
+  const sortWork = (a, b) => {
+    const overdueDifference =
+      Number(Boolean(b.due_date && b.due_date < today)) -
+      Number(Boolean(a.due_date && a.due_date < today));
+    if (overdueDifference) return overdueDifference;
+    const priorityDifference =
+      (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4);
+    if (priorityDifference) return priorityDifference;
+    return (a.due_date || "9999-12-31").localeCompare(
+      b.due_date || "9999-12-31",
+    );
+  };
+  let todayWork = [...candidates.values()].sort(sortWork);
+  let usingFocusQueue = false;
+  if (!todayWork.length) {
+    usingFocusQueue = true;
+    todayWork = [...open]
+      .filter((issue) =>
+        ["In progress", "In review", "To do"].includes(issue.status),
+      )
+      .sort(sortWork)
+      .slice(0, 6);
+  }
+  const mineToday = todayWork.filter((issue) => issue.assignee_id === me?.id);
+  const leadIssue = todayWork[0];
+  const owner = users.find((person) => person.id === leadIssue?.assignee_id);
+  const done = issues.filter((issue) => issue.status === "Done");
+  const estimatedDone = done.filter((issue) => Number(issue.points || 0) > 0);
+  const averagePoints = estimatedDone.length
+    ? Math.round(
+        (estimatedDone.reduce(
+          (sum, issue) => sum + Number(issue.points || 0),
+          0,
+        ) /
+          estimatedDone.length) *
+          10,
+      ) / 10
+    : 0;
+  const completedTypes = done.reduce((counts, issue) => {
+    counts[issue.type] = (counts[issue.type] || 0) + 1;
+    return counts;
+  }, {});
+  const learnedType = Object.entries(completedTypes).sort(
+    (a, b) => b[1] - a[1],
+  )[0]?.[0];
+  const sentences = [];
+  if (!open.length) {
+    sentences.push(
+      "Everything in this project is complete. Today is a good day to plan the next sprint or capture follow-up work.",
+    );
+  } else if (todayWork.length) {
+    sentences.push(
+      `${todayWork.length} ${usingFocusQueue ? "priority" : "scheduled"} ${todayWork.length === 1 ? "item needs" : "items need"} attention today${mineToday.length ? `, with ${mineToday.length} assigned to you` : ""}.`,
+    );
+    sentences.push(
+      `Start with “${leadIssue.title}”${owner ? `, owned by ${owner.name}` : ""}${leadIssue.priority === "Urgent" ? "; it is marked urgent" : ""}.`,
+    );
+  } else {
+    sentences.push(
+      `${open.length} open items remain, but none are scheduled or actively in progress today.`,
+    );
+  }
+  if (overdue.length)
+    sentences.push(
+      `${overdue.length} overdue ${overdue.length === 1 ? "item is" : "items are"} the main delivery risk.`,
+    );
+  else if (dueToday.length)
+    sentences.push(
+      `${dueToday.length} ${dueToday.length === 1 ? "item is" : "items are"} due by the end of today.`,
+    );
+  else if (completedToday.length)
+    sentences.push(
+      `${completedToday.length} ${completedToday.length === 1 ? "item has" : "items have"} already been completed today.`,
+    );
+  if (learnFromWorkspace) {
+    sentences.push(
+      done.length >= 2
+        ? `From ${done.length} completed items, Orbit has learned that ${learnedType || "project"} work is finished most often${estimatedDone.length ? ` and completed estimates average ${averagePoints} points` : ""}. It uses those patterns to rank the focus list.`
+        : "Orbit will refine this summary as the team completes more issues and records estimates and dates.",
+    );
+  }
+  return {
+    today,
+    todayWork,
+    usingFocusQueue,
+    dueToday,
+    overdue,
+    completedToday,
+    mineToday,
+    sentences,
+  };
+}
 function Avatar({ user, small = false }) {
   return (
     <span
@@ -97,7 +212,14 @@ function App() {
     [busy, setBusy] = useState(false),
     [authMode, setAuthMode] = useState("signin"),
     [signupMembers, setSignupMembers] = useState([]),
-    [profileMenu, setProfileMenu] = useState(false);
+    [profileMenu, setProfileMenu] = useState(false),
+    [selfLearn, setSelfLearn] = useState(() => {
+      try {
+        return localStorage.getItem("orbit_self_learn") !== "off";
+      } catch {
+        return true;
+      }
+    });
   const refresh = async () => {
     const d = await api("/workspace");
     setData(d);
@@ -133,6 +255,11 @@ function App() {
       window.removeEventListener("keydown", closeMenu);
     };
   }, [profileMenu]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("orbit_self_learn", selfLearn ? "on" : "off");
+    } catch {}
+  }, [selfLearn]);
   const run = async (fn, msg) => {
     setBusy(true);
     setError("");
@@ -161,7 +288,8 @@ function App() {
         (i.title + " " + i.key).toLowerCase().includes(search.toLowerCase()) &&
         (!assignee || String(i.assignee_id) === assignee) &&
         (!priority || i.priority === priority),
-    );
+    ),
+    dailyBrief = buildDailyBrief(all, data.users, me, selfLearn);
   const editable = me?.role !== "viewer";
   const newIssue = (status = "To do") => {
     if (project)
@@ -901,6 +1029,86 @@ function App() {
           )}
           {["Overview", "Reports"].includes(view) && (
             <>
+              {view === "Overview" && (
+                <section className="daily-brief">
+                  <div className="brief-heading">
+                    <span className="brief-icon"><Orbit size={21} /></span>
+                    <div>
+                      <span className="eyebrow">SMART DAILY BRIEF</span>
+                      <h2>{new Date(dailyBrief.today + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</h2>
+                      <small>Generated locally from your Orbit workspace. No API key or external AI service.</small>
+                    </div>
+                    <button
+                      className={"learning-toggle" + (selfLearn ? " active" : "")}
+                      aria-pressed={selfLearn}
+                      onClick={() => setSelfLearn((enabled) => !enabled)}
+                    >
+                      <Activity size={14} /> Workspace learning {selfLearn ? "on" : "off"}
+                    </button>
+                  </div>
+                  <div className="brief-body">
+                    <div className="brief-copy">
+                      {dailyBrief.sentences.map((sentence, index) => <p key={index}>{sentence}</p>)}
+                    </div>
+                    <div className="brief-metrics">
+                      <div><strong>{dailyBrief.todayWork.length}</strong><span>Today’s focus</span></div>
+                      <div className={dailyBrief.overdue.length ? "risk" : ""}><strong>{dailyBrief.overdue.length}</strong><span>Overdue</span></div>
+                      <div><strong>{dailyBrief.completedToday.length}</strong><span>Done today</span></div>
+                      <div><strong>{dailyBrief.mineToday.length}</strong><span>Assigned to you</span></div>
+                    </div>
+                  </div>
+                </section>
+              )}
+              {view === "Reports" && (
+                <section className="panel today-plan">
+                  <div className="today-plan-heading">
+                    <div>
+                      <span className="eyebrow">TODAY’S WORK</span>
+                      <h2>What needs to be done</h2>
+                      <p>
+                        {dailyBrief.usingFocusQueue
+                          ? "No dated work is scheduled today, so Orbit selected the strongest active priorities."
+                          : "Scheduled, overdue, and active work ranked by urgency and due date."}
+                      </p>
+                    </div>
+                    <span className="today-date"><CalendarDays size={15} /> {new Date(dailyBrief.today + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                  </div>
+                  <div className="today-summary-strip">
+                    <span>{dailyBrief.dueToday.length} due today</span>
+                    <span className={dailyBrief.overdue.length ? "warning" : ""}>{dailyBrief.overdue.length} overdue</span>
+                    <span>{dailyBrief.mineToday.length} assigned to you</span>
+                  </div>
+                  {dailyBrief.todayWork.length ? (
+                    <div className="today-work-list">
+                      {dailyBrief.todayWork.map((issue) => {
+                        const owner = data.users.find((person) => person.id === issue.assignee_id);
+                        return (
+                          <button key={issue.id} className="today-work-row" onClick={() => setModal({ kind: "issue", item: issue })}>
+                            <span className={"today-priority " + issue.priority} />
+                            <span className="today-work-copy">
+                              <small>{issue.key} · {issue.status}</small>
+                              <strong>{issue.title}</strong>
+                            </span>
+                            <span className="today-owner"><Avatar user={owner} small /> {owner?.name || "Unassigned"}</span>
+                            <span className={issue.due_date && issue.due_date < dailyBrief.today ? "today-due overdue" : "today-due"}>
+                              {issue.due_date
+                                ? issue.due_date < dailyBrief.today
+                                  ? `Overdue · ${issue.due_date}`
+                                  : issue.due_date === dailyBrief.today
+                                    ? "Due today"
+                                    : `Due ${issue.due_date}`
+                                : "Active now"}
+                            </span>
+                            <ArrowUpRight size={15} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="today-empty"><CheckCheck size={24} /><strong>No work needs attention today</strong><span>Plan the next sprint or enjoy the clear runway.</span></div>
+                  )}
+                </section>
+              )}
               <div className="stats">
                 {[
                   ["Total issues", all.length, "Across this project"],
